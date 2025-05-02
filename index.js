@@ -30,14 +30,18 @@ app.post('/transcribe', async (req, res) => {
   const audioPath = path.join(__dirname, `audio_${videoId}.webm`);
 
   try {
-    console.log("📥 Downloading audio...");
+    console.log("📥 Running yt-dlp on:", videoUrl);
     await ytdlp(videoUrl, {
       output: audioPath,
       extractAudio: true,
       audioFormat: 'webm',
       ffmpegLocation: ffmpegPath
+    }).catch(err => {
+      console.error("❌ yt-dlp-exec failed:", err.message);
+      throw new Error("yt-dlp-exec failed");
     });
 
+    console.log("📤 Uploading audio to AssemblyAI...");
     const audioData = fs.readFileSync(audioPath);
     const uploadRes = await fetch('https://api.assemblyai.com/v2/upload', {
       method: 'POST',
@@ -48,6 +52,7 @@ app.post('/transcribe', async (req, res) => {
     const { upload_url } = await uploadRes.json();
     if (!upload_url) throw new Error("Upload failed");
 
+    console.log("📝 Requesting transcription...");
     const transcriptRes = await fetch('https://api.assemblyai.com/v2/transcript', {
       method: 'POST',
       headers: {
@@ -61,6 +66,7 @@ app.post('/transcribe', async (req, res) => {
 
     let transcript;
     while (!transcript || transcript.status === 'processing') {
+      console.log("⌛ Waiting for transcription...");
       await new Promise(r => setTimeout(r, 5000));
       const pollRes = await fetch(`https://api.assemblyai.com/v2/transcript/${id}`, {
         headers: { authorization: ASSEMBLY_API_KEY }
@@ -71,13 +77,15 @@ app.post('/transcribe', async (req, res) => {
     fs.unlinkSync(audioPath);
 
     if (transcript.text) {
+      console.log("✅ Transcription complete.");
       return res.json({ transcript: transcript.text });
     } else {
+      console.error("❌ Transcription failed:", transcript);
       return res.status(500).json({ error: 'Transcription failed' });
     }
 
   } catch (error) {
-    console.error("❌ Transcription error:", error.message);
+    console.error("❌ General error:", error);
     return res.status(500).json({ error: 'Download or transcription failed' });
   }
 });

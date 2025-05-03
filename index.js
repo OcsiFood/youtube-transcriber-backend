@@ -37,9 +37,10 @@ app.post('/transcribe', async (req, res) => {
       audioFormat: 'mp3',
       ffmpegLocation: ffmpegPath
     }).catch(err => {
-      console.error("❌ yt-dlp-exec failed:", err.message);
-      throw new Error("yt-dlp-exec failed");
-    });
+  console.error("❌ yt-dlp-exec failed:", err);
+  throw err;
+});
+
 
     console.log("📤 Uploading audio to AssemblyAI...");
     const audioData = fs.readFileSync(audioPath);

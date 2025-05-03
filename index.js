@@ -27,14 +27,14 @@ app.post('/transcribe', async (req, res) => {
   if (!videoId) return res.status(400).json({ error: 'No video ID provided' });
 
   const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-  const audioPath = path.join(__dirname, `audio_${videoId}.webm`);
+  const audioPath = path.join(__dirname, `audio_${videoId}.mp3`);
 
   try {
     console.log("📥 Running yt-dlp on:", videoUrl);
     await ytdlp(videoUrl, {
       output: audioPath,
       extractAudio: true,
-      audioFormat: 'webm',
+      audioFormat: 'mp3',
       ffmpegLocation: ffmpegPath
     }).catch(err => {
       console.error("❌ yt-dlp-exec failed:", err.message);

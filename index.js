@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import fetch from 'node-fetch';
@@ -14,11 +15,15 @@ const ffmpegPath = require('ffmpeg-static');
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+const ASSEMBLY_API_KEY = process.env.ASSEMBLY_API_KEY;
+if (!ASSEMBLY_API_KEY) {
+  console.error('❌ ASSEMBLY_API_KEY environment variable is not set.');
+  process.exit(1);
+}
+
 const app = express();
 app.use(cors());
 app.use(express.json());
-
-const ASSEMBLY_API_KEY = 'c738c6aefdd94fb28b936c2d849ebfdf';
 
 app.get("/", (req, res) => res.send("Backend is alive."));
 
@@ -29,6 +34,10 @@ app.post('/transcribe', async (req, res) => {
   const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
   const audioPath = path.join(__dirname, `audio_${videoId}.mp3`);
 
+  const cleanup = () => {
+    try { fs.unlinkSync(audioPath); } catch (_) {}
+  };
+
   try {
     console.log("📥 Running yt-dlp on:", videoUrl);
     await ytdlp(videoUrl, {
@@ -37,10 +46,9 @@ app.post('/transcribe', async (req, res) => {
       audioFormat: 'mp3',
       ffmpegLocation: ffmpegPath
     }).catch(err => {
-  console.error("❌ yt-dlp-exec failed:", err);
-  throw err;
-});
-
+      console.error("❌ yt-dlp-exec failed:", err);
+      throw err;
+    });
 
     console.log("📤 Uploading audio to AssemblyAI...");
     const audioData = fs.readFileSync(audioPath);
@@ -66,16 +74,19 @@ app.post('/transcribe', async (req, res) => {
     const { id } = await transcriptRes.json();
 
     let transcript;
-    while (!transcript || transcript.status === 'processing') {
+    while (!transcript || transcript.status === 'queued' || transcript.status === 'processing') {
       console.log("⌛ Waiting for transcription...");
       await new Promise(r => setTimeout(r, 5000));
       const pollRes = await fetch(`https://api.assemblyai.com/v2/transcript/${id}`, {
         headers: { authorization: ASSEMBLY_API_KEY }
       });
       transcript = await pollRes.json();
+      if (transcript.status === 'error') {
+        throw new Error(`AssemblyAI transcription error: ${transcript.error}`);
+      }
     }
 
-    fs.unlinkSync(audioPath);
+    cleanup();
 
     if (transcript.text) {
       console.log("✅ Transcription complete.");
@@ -86,6 +97,7 @@ app.post('/transcribe', async (req, res) => {
     }
 
   } catch (error) {
+    cleanup();
     console.error("❌ General error:", error);
     return res.status(500).json({ error: 'Download or transcription failed' });
   }
